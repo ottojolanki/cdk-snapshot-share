@@ -13,11 +13,26 @@ from aws_cdk.aws_iam import Role
 
 from constructs import Construct
 
+from aws_cdk.aws_stepfunctions import Condition
+from aws_cdk.aws_stepfunctions import Choice
+from aws_cdk.aws_stepfunctions import JsonPath
+from aws_cdk.aws_stepfunctions import Map
+from aws_cdk.aws_stepfunctions import Pass
+from aws_cdk.aws_stepfunctions import Result
+from aws_cdk.aws_stepfunctions import Succeed
+from aws_cdk.aws_stepfunctions import StateMachine
+from aws_cdk.aws_stepfunctions import TaskInput
+from aws_cdk.aws_stepfunctions import Wait
+from aws_cdk.aws_stepfunctions import WaitTime
+
+from aws_cdk.aws_stepfunctions_tasks import LambdaInvoke
+
 from typing import Any
 
 IGVF_DEV_ENV = Environment(account='109189702753', region='us-west-2')
+DATABASE_IDENTIFIER = 'ipbe3yif4qeg11'
 
-class LatestSnapshotLambda(Stack):
+class CopySnapshotStepFunction(Stack):
 
     def __init__(
             self,
@@ -27,25 +42,54 @@ class LatestSnapshotLambda(Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        self.get_latest_snapshot_id = PythonFunction(
+        succeed = Succeed(self, 'Succeed')
+
+        copy_latest_snapshot_lambda = PythonFunction(
             self,
-            'GetLatestSnapshotID',
-            entry='lambda/',
+            'MakeLatestSnapshotCopyLambda',
+            entry='lambda/copy_snapshot',
             runtime=Runtime.PYTHON_3_9,
             index='main.py',
-            handler='get_latest_snapshot_id',
+            handler='copy_latest_rds_snapshot',
             timeout=Duration.seconds(60),
+            environment={'DATABASE_IDENTIFIER': DATABASE_IDENTIFIER},
         )
-        self.get_latest_snapshot_id.add_to_role_policy(
+
+        copy_latest_snapshot_lambda.add_to_role_policy(
              PolicyStatement(
-                actions=['rds:DescribeDBSnapshots'],
+                actions=[
+                    'rds:DescribeDBSnapshots',
+                    'rds:CopyDBSnapshot',
+                    'rds:AddTagsToResource'
+                ],
                 resources=['*'],
             )
         )
 
+        copy_successful = Pass(self, 'CopySuccessful')
+
+        make_copy_of_latest_snapshot = LambdaInvoke(
+            self,
+            'MakeCopyOfLatestSnapshot',
+            lambda_function=copy_latest_snapshot_lambda,
+            payload_response_only=True,
+            result_selector={
+                'copy_latest_rds_snapshot.$': '$'
+            }
+        )
+
+        definition = make_copy_of_latest_snapshot.next(
+            succeed
+        )
+
+        state_machine = StateMachine(
+            self,
+            'StateMachine',
+            definition=definition
+        )
 
 app = App()
 
-latest_snapshot_lambda = LatestSnapshotLambda(app, 'LatestSnapshotLambda', env=IGVF_DEV_ENV)
+copy_snapshot_stepfunction = CopySnapshotStepFunction(app, 'CopySnapshotStepFunction', env=IGVF_DEV_ENV)
 
 app.synth()
