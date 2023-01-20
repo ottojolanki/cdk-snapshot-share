@@ -1,3 +1,4 @@
+import json
 import os
 
 from aws_cdk import App
@@ -13,15 +14,10 @@ from aws_cdk.aws_iam import Role
 
 from constructs import Construct
 
-from aws_cdk.aws_stepfunctions import Condition
-from aws_cdk.aws_stepfunctions import Choice
 from aws_cdk.aws_stepfunctions import JsonPath
-from aws_cdk.aws_stepfunctions import Map
 from aws_cdk.aws_stepfunctions import Pass
-from aws_cdk.aws_stepfunctions import Result
 from aws_cdk.aws_stepfunctions import Succeed
 from aws_cdk.aws_stepfunctions import StateMachine
-from aws_cdk.aws_stepfunctions import TaskInput
 from aws_cdk.aws_stepfunctions import Wait
 from aws_cdk.aws_stepfunctions import WaitTime
 from aws_cdk.aws_stepfunctions import Fail
@@ -32,7 +28,12 @@ from typing import Any
 
 IGVF_DEV_ENV = Environment(account='109189702753', region='us-west-2')
 DATABASE_IDENTIFIER = 'ipbe3yif4qeg11'
-
+#gotta serialize as string to pass to lambda as env
+SHARE_TO_ACCOUNTS = json.dumps(
+    {
+        'accounts': ['618537831167']
+    }
+)
 class CopySnapshotStepFunction(Stack):
 
     def __init__(
@@ -67,8 +68,6 @@ class CopySnapshotStepFunction(Stack):
             )
         )
 
-        copy_successful = Pass(self, 'CopySuccessful')
-
         make_copy_of_latest_snapshot = LambdaInvoke(
             self,
             'MakeCopyOfLatestSnapshot',
@@ -87,6 +86,7 @@ class CopySnapshotStepFunction(Stack):
             index='main.py',
             handler='share_snapshot',
             timeout=Duration.seconds(60),
+            environment={'SHARE_TO_ACCOUNTS': SHARE_TO_ACCOUNTS},
         )
 
         share_snapshot_lambda.add_to_role_policy(
@@ -116,7 +116,7 @@ class CopySnapshotStepFunction(Stack):
         share_snapshot.add_retry(
             backoff_rate=2,
             errors=['InvalidDBSnapshotStateFault'],
-            interval=Duration.seconds(1),
+            interval=Duration.seconds(60),
             max_attempts=4,
         )
 
@@ -131,12 +131,6 @@ class CopySnapshotStepFunction(Stack):
                 Duration.seconds(10)
             )
         )
-
-        unable_to_share = Pass(
-            self,
-            'UnableToShare'
-        )
-
 
         definition = make_copy_of_latest_snapshot.next(
             wait_ten_minutes
