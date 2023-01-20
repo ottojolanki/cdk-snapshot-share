@@ -10,32 +10,17 @@ logging.basicConfig(
     force=True
 )
 
-
-def log(message):
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            logging.info(f'MESSAGE from {func.__name__}: {message}')
-            result = func(*args, **kwargs)
-            logging.info(f'RESULT: {result}')
-            return result
-        return wrapper
-    return decorator
-
 def get_database_identifier():
     return os.environ['DATABASE_IDENTIFIER']
-
 
 def get_rds_client():
     return boto3.client('rds')
 
-
 def get_describe_db_snapshots_paginator(client):
     return client.get_paginator('describe_db_snapshots')
 
-
 def make_query(paginator, **kwargs):
     return paginator.paginate(**kwargs)
-
 
 def get_results(query):
     for result in query:
@@ -55,7 +40,6 @@ def make_target_snapshot_id(source_snapshot_id):
     target_snapshot_id = re.sub('^rds\:', '', source_snapshot_id)
     return target_snapshot_id
 
-
 def make_copy_of_rds_snapshot(source_snapshot_id, client):
     response = client.copy_db_snapshot(
                     SourceDBSnapshotIdentifier=source_snapshot_id,
@@ -69,10 +53,8 @@ def make_copy_of_rds_snapshot(source_snapshot_id, client):
                )
     return response
 
-@log(message='Getting latest result')
 def get_latest_result(sorted_results):
     return list(sorted_results)[0]
-
 
 def copy_latest_rds_snapshot(event, context):
     db_instance_identifier = get_database_identifier()

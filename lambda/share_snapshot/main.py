@@ -11,9 +11,8 @@ logging.basicConfig(
     force=True
 )
 
-# SHARE_TO_ACCOUNTS=['618537831167'] #cherry-lab for testing
 
-def get_share_to_accounts():
+def get_share_to_accounts() -> str:
     accounts = os.getenv('SHARE_TO_ACCOUNTS')
     print(accounts)
     return json.loads(accounts)['accounts']
