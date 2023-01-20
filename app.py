@@ -24,6 +24,7 @@ from aws_cdk.aws_stepfunctions import StateMachine
 from aws_cdk.aws_stepfunctions import TaskInput
 from aws_cdk.aws_stepfunctions import Wait
 from aws_cdk.aws_stepfunctions import WaitTime
+from aws_cdk.aws_stepfunctions import Fail
 
 from aws_cdk.aws_stepfunctions_tasks import LambdaInvoke
 
@@ -56,7 +57,7 @@ class CopySnapshotStepFunction(Stack):
         )
 
         copy_latest_snapshot_lambda.add_to_role_policy(
-             PolicyStatement(
+            PolicyStatement(
                 actions=[
                     'rds:DescribeDBSnapshots',
                     'rds:CopyDBSnapshot',
@@ -78,9 +79,73 @@ class CopySnapshotStepFunction(Stack):
             }
         )
 
+        share_snapshot_lambda = PythonFunction(
+            self,
+            'ShareSnapshotCopyLambda',
+            entry='lambda/share_snapshot',
+            runtime=Runtime.PYTHON_3_9,
+            index='main.py',
+            handler='share_snapshot',
+            timeout=Duration.seconds(60),
+        )
+
+        share_snapshot_lambda.add_to_role_policy(
+            PolicyStatement(
+                actions=[
+                    'rds:ModifyDBSnapshotAttribute'
+                ],
+                resources=['*'],
+            )
+        )
+
+        share_failed = Fail(self,
+            'ShareFailed',
+            cause='Snapshot retry limit reached',
+        )
+
+        share_snapshot = LambdaInvoke(
+            self,
+            'ShareLatestSnapshot',
+            lambda_function=share_snapshot_lambda,
+            payload_response_only=True,
+            result_selector={
+                'shared_snapshot_id.$': '$'
+            }
+        )
+
+        share_snapshot.add_retry(
+            backoff_rate=2,
+            errors=['InvalidDBSnapshotStateFault'],
+            interval=Duration.seconds(1),
+            max_attempts=4,
+        )
+
+        share_snapshot.add_catch(share_failed)
+
+
+
+        wait_ten_minutes = Wait(
+            self,
+            'WaitTenMinutes',
+            time=WaitTime.duration(
+                Duration.seconds(10)
+            )
+        )
+
+        unable_to_share = Pass(
+            self,
+            'UnableToShare'
+        )
+
+
         definition = make_copy_of_latest_snapshot.next(
+            wait_ten_minutes
+        ).next(
+            share_snapshot
+        ).next(
             succeed
         )
+
 
         state_machine = StateMachine(
             self,

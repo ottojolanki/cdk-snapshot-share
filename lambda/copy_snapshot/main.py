@@ -91,9 +91,11 @@ def copy_latest_rds_snapshot(event, context):
     logging.info(f'Making a copy of snapshot: {latest_snapshot_id}')
     response = make_copy_of_rds_snapshot(latest_snapshot_id, client)
     #serialize datetime objects to string
-    return json.loads(
+    response_string = json.loads(
         json.dumps(
             response,
             default=str,
         )
     )
+    logging.info(response_string)
+    return latest_snapshot_id
